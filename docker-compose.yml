@@ -1,0 +1,206 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # PostgreSQL - Banco de dados principal do Moodle
+  # ============================================================================
+  postgres:
+    image: postgres:14-alpine
+    container_name: moodle_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: moodleuser
+      POSTGRES_PASSWORD: Moodle@2025!Strong
+      POSTGRES_DB: moodle
+
+      # Configurações de performance
+      POSTGRES_MAX_CONNECTIONS: 200
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
+      POSTGRES_WORK_MEM: 16MB
+      POSTGRES_MAINTENANCE_WORK_MEM: 128MB
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moodleuser -d moodle"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    networks:
+      - moodle_network
+
+  # ============================================================================
+  # TimescaleDB - Banco de logs de alta performance
+  # ============================================================================
+  timescaledb:
+    image: timescale/timescaledb:latest-pg17
+    container_name: moodle_timescaledb
+    restart: unless-stopped
+    ports:
+      - "5436:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Moodle@TSDB2025!
+      POSTGRES_DB: moodle_logs_tsdb
+
+      # Configurações de performance
+      POSTGRES_MAX_CONNECTIONS: 200
+      POSTGRES_SHARED_BUFFERS: 512MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 2GB
+      POSTGRES_WORK_MEM: 32MB
+      POSTGRES_MAINTENANCE_WORK_MEM: 256MB
+
+      # TimescaleDB
+      TIMESCALEDB_TELEMETRY: 'off'
+
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./scripts/init-tsdb-docker.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d moodle_logs_tsdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    networks:
+      - moodle_network
+
+  # ============================================================================
+  # Moodle - Aplicação PHP
+  # ============================================================================
+  moodle:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moodle_app
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      # Database configuration
+      MOODLE_DATABASE_TYPE: pgsql
+      MOODLE_DATABASE_HOST: postgres
+      MOODLE_DATABASE_PORT: 5432
+      MOODLE_DATABASE_NAME: moodle
+      MOODLE_DATABASE_USER: moodleuser
+      MOODLE_DATABASE_PASSWORD: Moodle@2025!Strong
+
+      # Site configuration
+      MOODLE_URL: http://localhost:8080
+      MOODLE_ADMIN: admin
+      MOODLE_ADMIN_PASSWORD: Admin@2025!TCC
+      MOODLE_ADMIN_EMAIL: admin@example.com
+      MOODLE_FULLNAME: "Moodle TCC - TimescaleDB"
+      MOODLE_SHORTNAME: tcc
+
+      # PHP configuration
+      PHP_MAX_INPUT_VARS: 5000
+      PHP_MEMORY_LIMIT: 512M
+      PHP_POST_MAX_SIZE: 512M
+      PHP_UPLOAD_MAX_FILESIZE: 512M
+
+      # Debug (development only)
+      MOODLE_DEBUG: 1
+
+    volumes:
+      # Código fonte (desenvolvimento)
+      - ./public:/var/www/html:cached
+
+      # Dados do Moodle
+      - moodledata:/var/moodledata
+
+      # Configuração customizada
+      - ./config.php:/var/www/html/config.php:ro
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - moodle_network
+
+  # ============================================================================
+  # Adminer - Interface web para gerenciar bancos de dados
+  # ============================================================================
+  adminer:
+    image: adminer:latest
+    container_name: moodle_adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: nette
+    depends_on:
+      - postgres
+      - timescaledb
+    networks:
+      - moodle_network
+
+# ==============================================================================
+# Volumes - Persistência de dados
+# ==============================================================================
+volumes:
+  postgres_data:
+    driver: local
+    name: moodle_postgres_data
+
+  timescaledb_data:
+    driver: local
+    name: moodle_timescaledb_data
+
+  moodledata:
+    driver: local
+    name: moodle_data
+
+# ==============================================================================
+# Network
+# ==============================================================================
+networks:
+  moodle_network:
+    driver: bridge
+    name: moodle_dev_network
+
+# ==============================================================================
+# COMO USAR
+# ==============================================================================
+#
+# 1. Subir todos os serviços:
+#    docker-compose up -d
+#
+# 2. Ver logs:
+#    docker-compose logs -f moodle
+#
+# 3. Acessar serviços:
+#    - Moodle:    http://localhost:8080
+#    - Adminer:   http://localhost:8081
+#    - PostgreSQL: localhost:5432
+#    - TimescaleDB: localhost:5436
+#
+# 4. Parar todos os serviços:
+#    docker-compose down
+#
+# 5. Resetar tudo (apaga volumes):
+#    docker-compose down -v
+#
+# 6. Reconstruir containers:
+#    docker-compose up -d --build
+#
+# ==============================================================================

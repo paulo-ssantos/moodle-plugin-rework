@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Documentation
+*.md
+README*
+docs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Moodle data
+moodledata/
+config.php
+
+# Node
+node_modules/
+npm-debug.log
+package-lock.json
+
+# PHP
+vendor/
+composer.lock
+
+# Tests
+phpunit.xml
+behat.yml
+
+# Logs
+*.log
+simulation.log
+
+# Temporary
+tmp/
+temp/
+cache/
+
+# Scripts
+scripts/simulation/
+scripts/*.sh
